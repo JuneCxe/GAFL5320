@@ -33,4 +33,4 @@ This repository contains survey response data and Stata `.do` files for analyzin
 2. Open Stata and run the `.do` files in order.
 3. Use the variable dictionaries (`.xlsx`) for reference while analyzing data.
 
-If you have any questions, feel free to reach out! 🚀
+If you have any questions, feel free to reach out!
