@@ -55,7 +55,7 @@ This repository contains survey data and R scripts used to analyze gender differ
 
 ## How to Use This Repository
 1. Download the relevant `.dta` files.
-2. Open Stata and run the `.do` files in order.
+2. Open RStudio and run the `.R` files in order.
 3. Use the variable dictionaries (`.xlsx`) for reference while analyzing data.
 
 If you have any questions, feel free to reach out!
