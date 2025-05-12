@@ -1,30 +1,55 @@
 # GAFL5320
-This repository contains survey response data and Stata `.do` files for analyzing gender differences in the Community Forests Program (CFP).
 
-## Data Files
+This repository contains survey data and R scripts used to analyze gender differences and program outcomes in the Zambia Community Forests Program (CFP) evaluation.
+
+## 📂 Data Files
+
 - **`CFP Headperson FINAL Combined no pii.dta`**  
-  → Full survey response data from **headpersons**.
-- **`CFP Household Women FINAL Combined no pii_wt.dta`**  
-  → Full survey response data from **household heads** and **wives of male household heads**.
+  → Survey responses from **community headpersons**.
 
-## Variable Dictionaries
+- **`CFP Household Women FINAL Combined no pii_wt.dta`**  
+  → Survey responses from **household heads** and **wives of male household heads**.
+
+- **`Q1Headperson.dta`**  
+  → Subset used for RQ1 analysis with headperson data.
+
+- **`Q1household_stat.dta`**  
+  → Subset used for RQ1 analysis with household data.
+
+## 📄 Variable Dictionaries
+
 - **`cfpheadperson_FINAL_V3.xlsx`**  
 - **`cfp_hh_wom_FINAL_V3.xlsx`**  
-  → Contain **variable names**, corresponding **survey questions**, answer choices, and other metadata.
+  → Variable names, corresponding survey questions, answer choices, and other metadata.
 
-## Stata Coding Files
-- **`Q1_do.do`**  
-  → Analysis script for **Research Question 1 (RQ1)**:  
-    *Are there differences in women’s and men’s responses to CFP program benefits and challenges?*
-- **`Q2.do`**  
-  → Preliminary data cleaning script for **Research Question 2 (RQ2)**:  
-    *Is there a difference in how women and men report adaptation and resilience to climate change and the recent drought in Zambia?*
+## 🧮 R Analysis Scripts
 
-## Sub-Datasets
-- **`Q1Headperson.dta`**  
-  → Subset of data for **headpersons' responses** in RQ1 analysis.
-- **`Q1household_stat.dta`**  
-  → Subset of data for **household respondents' responses** in RQ1 analysis.
+- **`Headperson.R`**  
+  → Analysis of **headperson survey**:
+  - **RQ1**: Gendered perceptions of CFP importance, fairness, satisfaction, and adequacy  
+  - **RQ2**: Gendered differences in reported climate stressors, observed environmental change, and adaptive concern
+
+- **`Household.R`**  
+  → Analysis of **household and women survey**:
+  - **RQ1**: Gender differences in perceived CFP impacts (logistic regressions)
+  - **RQ2**: Gender differences in climate resilience and coping/adaptation strategies (logistic & negative binomial models)
+  - **RQ3**: Factors predicting **benefit receipt**
+  - **RQ4**: Factors predicting **support for REDD+** and trust in governance (OLS + PCA indices + interactions)
+
+## 📝 Support Files
+
+- **`asset.txt`**  
+  → A list of variable name roots used to construct the **durable asset PCA index**, referenced in `Household.R`.
+
+## ❌ Deprecated
+
+- **`Q1_do.do`, `Q2.do`**  
+  → Former Stata `.do` files used for RQ1 and RQ2 are no longer in use. All analysis has been migrated to R.
+
+---
+
+**Note:** All regression models, PCA indices, and summary statistics are now handled in R. This repository is designed to support reproducible evaluation of CFP impacts with a focus on gender and equity.
+
 
 ---
 
