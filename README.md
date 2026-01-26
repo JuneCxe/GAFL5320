@@ -23,8 +23,8 @@ This repository contains survey data and R scripts used to analyze gender differ
   → Variable names, corresponding survey questions, answer choices, and other metadata.
 
 ## 🧮 R Analysis Scripts
-- **`HH+HP_10182025.R`**
-    → Updated data cleaning for **headperson survey** and **household and women survey**
+- **`HH+HP_10182025.R`**  
+  → Updated data cleaning for **headperson survey** and **household and women survey**
 
 - **`Headperson.R`**  
   → Analysis of **headperson survey**:
