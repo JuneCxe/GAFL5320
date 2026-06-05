@@ -10,11 +10,6 @@ This repository contains survey data and R scripts used to analyze gender differ
 - **`CFP Household Women FINAL Combined no pii_wt.dta`**  
   → Survey responses from **household heads** and **wives of male household heads**.
 
-- **`Q1Headperson.dta`**  
-  → Subset used for RQ1 analysis with headperson data.
-
-- **`Q1household_stat.dta`**  
-  → Subset used for RQ1 analysis with household data.
 
 ## 📄 Variable Dictionaries
 
@@ -44,7 +39,9 @@ This repository contains survey data and R scripts used to analyze gender differ
   → A list of variable name roots used to construct the **durable asset PCA index**, referenced in `Household.R`.
 
 ## ❌ Deprecated
-
+- **`Q1Headperson.dta`, `Q1household_stat.dta`**  
+  → Former Stata Subsets used for RQ1 and RQ2 analysis with household data are no longer in use. All analysis is based on `CFP Headperson FINAL Combined no pii.dta` and `CFP Household Women FINAL Combined no pii_wt.dta`.
+  
 - **`Q1_do.do`, `Q2.do`**  
   → Former Stata `.do` files used for RQ1 and RQ2 are no longer in use. All analysis has been migrated to R.
 
