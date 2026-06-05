@@ -13,6 +13,7 @@ library(tidyverse)
 library(performance)
 library(car)
 library(psych)
+library(fixest)
 
 #=========================#
 # IMPLEMENTATION ANALYSIS #
@@ -48,6 +49,22 @@ df <- df %>%
     ed_head_group = factor(ed_head_group, levels = c("Low", "Middle", "High"))
   )
 
+# --- Combining age/ed and age/ed_head into age of the head of the household
+df$hh_head_age <- ifelse(df$relhead == 1,
+                         df$age,
+                         df$age_head)
+
+df$hh_head_ed_group <- ifelse(df$relhead == 1,
+                              as.character(df$ed_group),
+                              as.character(df$ed_head_group))
+
+df$hh_head_ed_group <- factor(df$hh_head_ed_group,
+                              levels = c("Low", "Middle", "High"))
+
+df$hh_head_born <- ifelse(df$relhead == 1,
+                              df$born,
+                              df$born_head)
+
 # --- Apply ordered factor to annual income ---
 # Income is divided into 7 groups that represent increasing annual income as the number increases
 # Thus, we apply ordered factor to the annual income
@@ -65,17 +82,29 @@ df <- df %>%
     forminutes_avg = rowMeans(.[ , grep("^forminutes_", names(.)), drop = FALSE], na.rm = TRUE)
   )
 
-# --- Create leader perception index (PCA on complete cases only) ---
-# fleader_bribes and fleader_transparent were excluded (why?)
 
-# Define variables
-leader_vars <- c(
+# Reverse forest govenance variables so that 1 = strongly disagree, 5=strongly agree
+rev_fgov_vars <- c(
   "fleader_trust",
   "fleader_protect",
   "fleader_fair",
-  "fleader_work"
+  "fleader_work",
+  "fleader_bribes",
+  "forest_satisfied"
 )
 
+df[paste0(rev_fgov_vars, "_rev")] <- lapply(df[rev_fgov_vars], function(x) {
+  ifelse(is.na(x), NA, 6 - x)
+})
+# --- Create leader perception index (PCA on complete cases only) ---
+# fleader_bribes and fleader_transparent were excluded (why?)
+# Define leader perception index variables 
+leader_vars <- c(
+  "fleader_trust_rev",
+  "fleader_protect_rev",
+  "fleader_fair_rev",
+  "fleader_work_rev"
+)
 # Count missing variables to determine whether to use complete cases only or impute
 na_count <- rowSums(is.na(df[, leader_vars]))
 table(na_count)
@@ -92,6 +121,7 @@ leader_index <- as.numeric(scale(leader_pca$x[, 1]))  # use PC1
 # Create full-length vector, NA where incomplete, and put in PCA score where complete = True
 df$leader_index <- NA
 df$leader_index[leader_complete_idx] <- leader_index
+
 
 # --- Create dummy variables for de facto governance power ---
 df <- df %>%
@@ -222,54 +252,71 @@ social_vars <- c("likelihood_help",      # community willingness to lend money
                  "attend_benefit"       # frequency of joint efforts to ask for benefits
                  )
 
-social_df <- df %>%
-  dplyr::select(all_of(social_vars)) %>%
-  dplyr::mutate(across(everything(), ~ ifelse(.x %in% c(888, 999), NA, .x)))
-
-# Reverse code 'likelihood_help' so that higher number = more people are willing to help
-# Original: 0–4, where 0 = No one, 1 = Everyone，2 = Most people, 3 = Some people, 4 = A few people
-# New: 1–5, where 1 = No one, 5 = Everyone
-social_df <- social_df %>%
-  mutate(
-    likelihood_help = case_when(
-      likelihood_help == 0 ~ 1,   # No one → 1
-      likelihood_help == 1 ~ 5,   # Everyone → 5
-      likelihood_help == 2 ~ 4,   # Most people → 4
-      likelihood_help == 3 ~ 3,   # Some people → 3
-      likelihood_help == 4 ~ 2,   # A few people → 2
-      TRUE ~ likelihood_help
-    )
-  )
-
-# Reverse code attend_benefit so higher number = more social participation
-# (1 = Weekly, 4 = Never → becomes 4 = Weekly, 1 = Never)
-social_df <- social_df %>%
-  mutate(
-    attend_benefit = case_when(
-      attend_benefit == 1 ~ 4,
-      attend_benefit == 2 ~ 3,
-      attend_benefit == 3 ~ 2,
-      attend_benefit == 4 ~ 1,
-      TRUE ~ attend_benefit
-    )
-  )
-
-# Check for remaining NAs or zero-variance columns
-colSums(is.na(social_df))
-sapply(social_df, sd, na.rm = TRUE)
-
-# NAs are limited and there are no sign of zero variance, we can proceed
-# Standardize the variables using their mean
+# Clean the social capital variables and deal with special cases (don't know/prefer not to say -> NA) 
 df <- df %>%
   mutate(
-    across(c(likelihood_help, likelihood_help2, likelihood_help3, attend_benefit),
-           ~ scale(.x), .names = "{.col}_std")
+    likelihood_help_clean  = ifelse(likelihood_help %in% c(888, 999), NA, likelihood_help),
+    likelihood_help2_clean = ifelse(likelihood_help2 %in% c(888, 999), NA, likelihood_help2),
+    likelihood_help3_clean = ifelse(likelihood_help3 %in% c(888, 999), NA, likelihood_help3),
+    attend_benefit_clean   = ifelse(attend_benefit %in% c(888, 999), NA, attend_benefit)
+  ) %>%
+  mutate(
+    # Reverse code 'likelihood_help' so that higher number = more people are willing to help
+    # Original: 0–4, where 0 = No one, 1 = Everyone，2 = Most people, 3 = Some people, 4 = A few people
+    # New: 1–5, where 1 = No one, 5 = Everyone
+    likelihood_help_clean = case_when(
+      likelihood_help_clean == 0 ~ 1,   # No one → 1
+      likelihood_help_clean == 1 ~ 5,   # Everyone → 5
+      likelihood_help_clean == 2 ~ 4,   # Most people → 4
+      likelihood_help_clean == 3 ~ 3,   # Some people → 3
+      likelihood_help_clean == 4 ~ 2,   # A few people → 2
+      TRUE ~ likelihood_help_clean
+    ),
+    
+    # Reverse code attend_benefit so higher number = more social participation
+    # (1 = Weekly, 4 = Never → becomes 4 = Weekly, 1 = Never)
+    attend_benefit_clean = case_when(
+      attend_benefit_clean == 1 ~ 4,
+      attend_benefit_clean == 2 ~ 3,
+      attend_benefit_clean == 3 ~ 2,
+      attend_benefit_clean == 4 ~ 1,
+      TRUE ~ attend_benefit_clean
+    )
   ) 
 
-# Check correlation among variables, round by 2
+# NA check
+colSums(is.na(df %>% 
+                dplyr::select(likelihood_help_clean,
+                              likelihood_help2_clean,
+                              likelihood_help3_clean,
+                              attend_benefit_clean)))
+# variance/sd check
+sapply(df %>%
+         dplyr::select(likelihood_help_clean,
+                       likelihood_help2_clean,
+                       likelihood_help3_clean,
+                       attend_benefit_clean),
+       sd,
+       na.rm = TRUE)
+
+# NAs are limited and there are no sign of zero variance, we can proceed
+# Standardize the variables using their mean 
+df <- df %>%
+  mutate(
+    likelihood_help_std  = as.numeric(scale(likelihood_help_clean)),
+    likelihood_help2_std = as.numeric(scale(likelihood_help2_clean)),
+    likelihood_help3_std = as.numeric(scale(likelihood_help3_clean)),
+    attend_benefit_std   = as.numeric(scale(attend_benefit_clean))
+  ) 
+
+# Correlation check, round by 2
 round(
   cor(
-    df %>% dplyr::select(ends_with("_std")),
+    df %>% 
+      dplyr::select(likelihood_help_std,
+                    likelihood_help2_std,
+                    likelihood_help3_std,
+                    attend_benefit_std),
     use = "pairwise.complete.obs"
   ),
   2
@@ -279,24 +326,26 @@ round(
 # suggesting they capture distinct aspects of social relations.
 # Therefore, we use an equal-weight standardized mean index as our main measure of overall social capital
 
+# Constructing the index
 # Take row-wise mean across standardized variables and rescale them to (0,1)
 df <- df %>%
   mutate(
-    social_capital_mean = rowMeans(across(ends_with("_std")), na.rm = TRUE),
+    social_capital_mean = rowMeans(
+      dplyr::select(., likelihood_help_std, likelihood_help2_std, likelihood_help3_std, attend_benefit_std),
+      na.rm = TRUE
+    ),
     social_capital_mean_01 = scales::rescale(social_capital_mean, to = c(0, 1))
   )
+
 
 # ======= Load HH level covariates & outcomes ======== #
 hh_df <- df[, c(
   "chief",
   "vilid",
   "gender_respondent",
-  "age",
-  "age_head",
-  "ed_group",
-  "ed_head_group",
-  "born",
-  "born_head",
+  "hh_head_age",
+  "hh_head_ed_group",
+  "hh_head_born",
   "hire",
   "econstatus",
   "hh_size",
@@ -305,7 +354,7 @@ hh_df <- df[, c(
   "hfincome_avg",
   "crb_yn",
   "leader_index",
-  "forest_satisfied",
+  "forest_satisfied_rev",
   "involved_hhmem_yn",
   "inc_annual_f",
   "log_livestock_pca",
@@ -313,7 +362,9 @@ hh_df <- df[, c(
   "social_capital_mean_01",
   "hmrelate",
   "chiefrelate1",
-  "fleader_bribes",
+  "fleader_bribes_rev",
+  "cfp_important",
+  "cfp_enough",
   grep("^forestlead_", names(df), value = TRUE),
   
   # CFP Benefit Outcomes
@@ -353,7 +404,8 @@ hh_df <- df[, c(
 
 # --- HH Summary stats cleaning ---
 hh_df <- hh_df %>%
-  mutate(across(everything(), ~ ifelse(.x %in% c(888, 999), NA, .x)))
+  mutate(across(where(is.numeric), ~ ifelse(.x %in% c(888, 999), NA, .x)))
+
 
 summary(hh_df)
 # looking at all variables for which NA's are > 1000, it is mainly because they have constraints
@@ -373,8 +425,10 @@ hh_df$svc_edu    <- make_dummy(hh_df$comsvc, 4)
 hh_df$svc_health <- make_dummy(hh_df$comsvc, 5)
 hh_df$svc_other  <- make_dummy(hh_df$comsvc, 97)
 
-## Reverse coding for cfp_fair: 1= strongly disagree, 5=strongly agree
+## Reverse coding for cfp_fair: 1= strongly disagree/very dissatisfied, 5=strongly agree/very satisfied
+hh_df$cfp_satisfied_rev <- 6 - hh_df$cfp_satisfied
 hh_df$cfp_fair_rev <- 6 - hh_df$cfp_fair
+hh_df$cfp_enough_rev <- 6 - hh_df$cfp_enough
 
 
 # --- HH Benefit Receipt Outcomes ---
@@ -384,7 +438,7 @@ shh_df <- hh_df %>%
 
 # --- Drop rows with missing values in key demographic variables ---
 shh_df <- shh_df %>%
-  filter(!is.na(cfp_aware) & !is.na(age) & !is.na(gender_respondent))
+  filter(!is.na(cfp_aware) & !is.na(hh_head_age) & !is.na(gender_respondent))
 
 # --- Correlation between our key independent variables ---
 cor(shh_df[, c(
@@ -597,17 +651,38 @@ head_df$problem_dev_index <- rowMeans(
 # whether to include them as control variables or not
 table(head_df$hgender)
 
-table(head_df$hgender, head_df$heduc)
+# Female makes up over 10%. Include and change coding
+head_df <- head_df %>%
+  mutate(
+    hgender = as.numeric(hgender),
+    gender = ifelse(hgender == 1, 0,
+                    ifelse(hgender == 2, 1, NA)) 
+  )
+
+# Look at the distribution of education + gender
+table(head_df$gender, head_df$heduc)
 head_df$edu_bin <- ifelse(head_df$heduc == 1, "No education", "Has education")
-table(head_df$hgender, head_df$edu_bin)
+table(head_df$gender, head_df$edu_bin)
+
+# Group education into three levels：Low / Middle / High
+head_df <- head_df %>%
+  mutate(
+    ed_group = case_when(
+      heduc >= 1 & heduc <= 7  ~ "Low",              # Primary incomplete or lower
+      heduc >= 8 & heduc <= 11 ~ "Middle",           # Completed primary or lower secondary
+      heduc >= 12 & heduc <= 15 ~ "High",            # Senior secondary and above
+      TRUE ~ NA_character_                    # Catch missing, 888, 999, etc.
+    ),
+    ed_group = factor(ed_group, levels = c("Low", "Middle", "High"))
+  )
 
 
 
 # ======== VILLAGE COVARIATEs & OUTCOMES ========#
 
 village_df <- head_df[, c(
-  "hgender",
-  "heduc",
+  "gender",
+  "ed_group",
   "hvsize",
   "htarmac",
   "fdistance_avg",
@@ -658,7 +733,7 @@ village_df <- head_df[, c(
 
 # --- Cleaning: 888 (don't know) & 999(prefer not to say) are considered missing ---
 village_df <- village_df %>%
-  mutate(across(everything(), ~ ifelse(.x %in% c(888, 999), NA, .x)))
+  mutate(across(where(is.numeric), ~ ifelse(.x %in% c(888, 999), NA, .x)))
 
 ## Make dummy for benefits received from CFP: Generate dummies for each benefit (0/1)
 make_dummy <- function(x, code){
@@ -679,16 +754,26 @@ village_df$cfp_hhcash  <- make_dummy(village_df$cfp_ben, 10)
 village_df$cfp_vilcash  <- make_dummy(village_df$cfp_ben, 11)
 village_df$cfp_other  <- make_dummy(village_df$cfp_ben, 97)
 
+# Reverse coding to make 5 = positive sentiments towards cfp
+rev_vilcfp_vars <- c("cfp_satisfied", "cfp_fair", "cfp_enough")
+
+village_df[paste0(rev_vilcfp_vars, "_rev")] <- lapply(village_df[rev_vilcfp_vars], function(x) {
+  ifelse(is.na(x), NA, 6 - x)
+})
+
 # --- HH Benefit Receipt Outcomes ---
 # Remove villages not participating in CFP
 svil_df <- village_df %>%
   filter(cfp_aware != 0  & !is.na(cfp_aware))
 
-# --- Correlation between our key independent variables ---
+# --- Correlation between our key independent/control variables ---
 cor(svil_df[, c(
-  "cfp_satisfied",
-  "cfp_fair")
+  "cfp_satisfied_rev",
+  "cfp_fair_rev",
+  "cfp_enough_rev",
+  "cfp_important")
 ], use = "complete.obs")
+#(cfp_enough and cfp_fair is highly correlated. We'll only use cfp_important for control)
 
 # --- Convert 5-point Likert scale variables to binary indicators (1 = satisfied) ---
 svil_df <- svil_df %>%
@@ -700,11 +785,7 @@ svil_df <- svil_df %>%
 
 # --- HP Forest Governance Outcomes ---
 # Reverse coding to make 5=agreeing to positive outcomes of cfp
-rev_hp_vars <- c("hhinform_revexp", "redd_drought")
-
-village_df[paste0(rev_hp_vars, "_rev")] <- lapply(village_df[rev_hp_vars], function(x) {
-  ifelse(is.na(x), NA, 6 - x)
-})
+village_df$hhinform_revexp_rev <- 6 - village_df$hhinform_revexp
 
 # Build composite index for "happy with CRB"
 ## Reverse coding to make 1= strongly disagree, 5=strongly agree
@@ -721,15 +802,12 @@ village_df$crb_att_index <- rowMeans(village_df[, rev_hp_crb], na.rm = TRUE)
 summary(village_df$crb_att_index)
 hist(village_df$crb_att_index)
 
-# Reverse coding to make 5 = positive sentiments towards cfp
-rev_vilcfp_vars <- c("cfp_satisfied", "cfp_fair", "cfp_enough")
-
-village_df[paste0(rev_vilcfp_vars, "_rev")] <- lapply(village_df[rev_vilcfp_vars], function(x) {
-  ifelse(is.na(x), NA, 6 - x)
-})
 
 
-# ------ Descriptive Analysis (HH) ------
+##########################################
+# ------ Descriptive Analysis (HH) ------#
+##########################################
+
 ## Summary statistics of perception on the importance of services provided
 # Vector of services of our interest
 imp_vars <- c(
@@ -847,8 +925,10 @@ c(
   median = median(hh_df$cfp_fair_rev, na.rm = TRUE),
   IQR = IQR(hh_df$cfp_fair_rev, na.rm = TRUE)
 )
+###############################################
+# ------ Descriptive Analysis (Village) ------#
+###############################################
 
-# ------ Descriptive Analysis (Village) ------
 ## Ever filed a complaint about a carbon/REDD+ project?
 table(village_df$complain_yn)
 
@@ -908,7 +988,7 @@ for(v in cfp_perception_vars){
   df_vil_subs <- village_df %>%
     filter(!is.na(.data[[v]]))
   
-  tab <- table(df_vil_subs$hgender, df_vil_subs[[v]])
+  tab <- table(df_vil_subs$gender, df_vil_subs[[v]])
   print(tab)
   print(round(100 * prop.table(tab, 1), 1))
 }
@@ -923,3 +1003,852 @@ median_iqr <- function(x){
 t(sapply(village_df[cfp_perception_vars], function(x) median_iqr(x)))
 
 
+###############################################
+# ========== Household Regression =========== #
+###############################################
+
+# --- Determinants of CRB/VAG/CFMG benefit/service receipt ---
+## Baseline OLS
+lm1_base <- lm(
+  any_ben ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+    ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm1a <- feols(
+  any_ben ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm1b <- feols(
+  any_ben ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm1_base, type = "text")
+etable(lm1a, lm1b, headers = c("No Chief FE", "Chief FE"))
+
+# --- Determinants of CRB/VAG/CFMG benefit/service receipt ---
+lm2_base <- lm(
+  cfp_aware ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm2a <- feols(
+  cfp_aware ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm2b <- feols(
+  cfp_aware ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm2_base, type = "text")
+etable(lm2a, lm2b, headers = c("No Chief FE", "Chief FE"))
+
+# --- Determinants of satisfaction and perception of fairness for CFP ---
+## Among those who received CFP awareness
+## Satisfaction
+lm3 <- lm(
+  cfp_satisfied_rev ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev +
+    cfp_important
+  ,
+  data = shh_df
+)
+
+lm3_base <- lm(
+  cfp_satisfied_binary ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev +
+    cfp_important
+  ,
+  data = shh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm3a <- feols(
+  cfp_satisfied_binary ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev +
+    cfp_important,
+  data = shh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm3b <- feols(
+  cfp_satisfied_binary ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev +
+    cfp_important | chief,
+  data = shh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm3, lm3_base, type = "text")
+etable(lm3a, lm3b, headers = c("No Chief FE", "Chief FE"))
+
+
+## Perception of fairness
+lm4 <- lm(
+  cfp_fair_rev ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev +
+    cfp_important
+  ,
+  data = shh_df
+)
+
+lm4_base <- lm(
+  cfp_fair_binary ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev +
+    cfp_important
+  ,
+  data = shh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm4a <- feols(
+  cfp_fair_binary ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate+
+    chiefrelate1 + fleader_bribes_rev +
+    cfp_important,
+  data = shh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm4b <- feols(
+  cfp_fair_binary ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev +
+    cfp_important | chief,
+  data = shh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm4, lm4_base, type = "text")
+etable(lm4a, lm4b, headers = c("No Chief FE", "Chief FE"))
+
+
+cor(hh_df[, c(
+  "cfp_satisfied_rev",
+  "cfp_fair_rev",
+  "cfp_enough_rev",
+  "cfp_important")
+], use = "pairwise.complete.obs")
+
+# --- Forest Governance Outcomes ---
+# Determinants of knowledge about REDD+ revenue distribution
+## Baseline OLS
+lm5_base <- lm(
+  hhinform_revexp_rev ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm5a <- feols(
+  hhinform_revexp_rev ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm5b <- feols(
+  hhinform_revexp_rev ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm5_base, type = "text")
+etable(lm5a, lm5b, headers = c("No Chief FE", "Chief FE"))
+
+
+# Determinants of perception about REDD+ revenue distribution fairness
+## Baseline OLS
+lm6_base <- lm(
+  hhrev_equal_rev ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm6a <- feols(
+  hhrev_equal_rev ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm6b <- feols(
+  hhrev_equal_rev ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm6_base, type = "text")
+etable(lm6a, lm6b, headers = c("No Chief FE", "Chief FE"))
+
+# Determinants of REDD+ perception (REDD+ steals oxygen)
+## Baseline OLS
+lm7_base <- lm(
+  redd_steal ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm7a <- feols(
+  redd_steal ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm7b <- feols(
+  redd_steal ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm7_base, type = "text")
+etable(lm7a, lm7b, headers = c("No Chief FE", "Chief FE"))
+
+# Determinants of REDD+ perception (REDD+ cause droughts)
+## Baseline OLS
+lm8_base <- lm(
+  redd_drought ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm8a <- feols(
+  redd_drought ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm8b <- feols(
+  redd_drought ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm8_base, type = "text")
+etable(lm8a, lm8b, headers = c("No Chief FE", "Chief FE"))
+
+# Determinants of attitude towards CRB
+## Baseline OLS
+lm9_base <- lm(
+  crb_att_index ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm9a <- feols(
+  crb_att_index ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm9b <- feols(
+  crb_att_index ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm9_base, type = "text")
+etable(lm9a, lm9b, headers = c("No Chief FE", "Chief FE"))
+
+# Determinants of attitude towards CFMG
+## Baseline OLS
+lm10_base <- lm(
+  cfmg_att_index ~ gender_respondent + 
+    hh_head_age +
+    hh_head_ed_group +
+    hh_head_born +
+    hire +
+    econstatus +
+    hh_size +
+    hfconsume_avg + 
+    hfincome_avg + 
+    forminutes_avg + 
+    crb_yn +
+    leader_index + 
+    forest_satisfied_rev +
+    involved_hhmem_yn +
+    inc_annual_f +
+    log_livestock_pca +
+    log_durable_pca +
+    social_capital_mean_01 +
+    hmrelate +
+    chiefrelate1 +
+    fleader_bribes_rev
+  ,
+  data = hh_df
+)
+
+## Cluster at village ID (vilid), without chief ID (chief)
+lm10a <- feols(
+  cfmg_att_index ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+## Cluster at village ID (vilid), with chief ID (chief)
+lm10b <- feols(
+  cfmg_att_index ~ gender_respondent + hh_head_age + hh_head_ed_group +
+    hh_head_born + hire + econstatus + hh_size +
+    hfconsume_avg + hfincome_avg + forminutes_avg +
+    crb_yn + leader_index + forest_satisfied_rev +
+    involved_hhmem_yn + inc_annual_f +
+    log_livestock_pca + log_durable_pca +
+    social_capital_mean_01 + hmrelate +
+    chiefrelate1 + fleader_bribes_rev | chief,
+  data = hh_df,
+  cluster = ~ vilid
+)
+
+# stargazer(lm10_base, type = "text")
+etable(lm10a, lm10b, headers = c("No Chief FE", "Chief FE"))
+
+#############################################
+# ========== Village Regression =========== #
+#############################################
+lm_vil1 <- lm(
+  any_ben ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil2 <- lm(
+  cfp_aware ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil3 <- lm(
+  hhinform_revexp_rev ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil4 <- lm(
+  redd_steal ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil5 <- lm(
+  redd_drought ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil6 <- lm(
+  crb_att_index ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index
+  ,
+  data = village_df
+)
+
+lm_vil7 <- lm(
+  cfp_satisfied_binary ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index+
+    cfp_important
+  ,
+  data = svil_df
+)
+
+# 
+lm_vil8 <- lm(
+  cfp_fair_binary ~ gender + 
+    ed_group +
+    hvsize +
+    htarmac +
+    fdistance_avg +
+    fhhconsume_avg +
+    fhhincome_avg + 
+    crb_cfmg_any +
+    fguard + 
+    vforrestrict_dummy +
+    helite_encroach +
+    hchief_encroach +
+    hinvestor_encroach +
+    hgovt_enroach +
+    inv_num +
+    authority_index +
+    problem_dev_index+
+    cfp_important
+  ,
+  data = svil_df
+)
+
+stargazer(lm_vil1,lm_vil2, type = "text")
+stargazer(lm_vil3,lm_vil4,lm_vil5,lm_vil6, type = "text")
+stargazer(lm_vil7, lm_vil8, type="text")
