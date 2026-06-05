@@ -19,19 +19,7 @@ This repository contains survey data and R scripts used to analyze gender differ
 
 ## 🧮 R Analysis Scripts
 - **`HH+HP_10182025.R`**  
-  → Updated data cleaning for **headperson survey** and **household and women survey**
-
-- **`Headperson.R`**  
-  → Analysis of **headperson survey**:
-  - **RQ1**: Gendered perceptions of CFP importance, fairness, satisfaction, and adequacy  
-  - **RQ2**: Gendered differences in reported climate stressors, observed environmental change, and adaptive concern
-
-- **`Household.R`**  
-  → Analysis of **household and women survey**:
-  - **RQ1**: Gender differences in perceived CFP impacts (logistic regressions)
-  - **RQ2**: Gender differences in climate resilience and coping/adaptation strategies (logistic & negative binomial models)
-  - **RQ3**: Factors predicting **benefit receipt**
-  - **RQ4**: Factors predicting **support for REDD+** and trust in governance (OLS + PCA indices + interactions)
+  → Updated version of data cleaning and analysis for **headperson survey** and **household and women survey**
 
 ## 📝 Support Files
 
@@ -45,6 +33,17 @@ This repository contains survey data and R scripts used to analyze gender differ
 - **`Q1_do.do`, `Q2.do`**  
   → Former Stata `.do` files used for RQ1 and RQ2 are no longer in use. All analysis has been migrated to R.
 
+- **`Headperson.R`**  
+  → First version of the analysis of **headperson survey**:
+  - **RQ1**: Gendered perceptions of CFP importance, fairness, satisfaction, and adequacy  
+  - **RQ2**: Gendered differences in reported climate stressors, observed environmental change, and adaptive concern
+
+- **`Household.R`**  
+  → First version of the analysis of **household and women survey**:
+  - **RQ1**: Gender differences in perceived CFP impacts (logistic regressions)
+  - **RQ2**: Gender differences in climate resilience and coping/adaptation strategies (logistic & negative binomial models)
+  - **RQ3**: Factors predicting **benefit receipt**
+  - **RQ4**: Factors predicting **support for REDD+** and trust in governance (OLS + PCA indices + interactions)
 ---
 
 **Note:** All regression models, PCA indices, and summary statistics are now handled in R. This repository is designed to support reproducible evaluation of CFP impacts with a focus on gender and equity.
